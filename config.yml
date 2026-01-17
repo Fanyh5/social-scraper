@@ -14,7 +14,13 @@ server:
 # 爬虫配置
 scraper:
   twitter:
-    # Nitter 实例列表 (优先使用靠前的实例)
+    # 数据源优先级: 按顺序尝试，如果失败则尝试下一个
+    # 可选值: nitter, sotwe
+    sources:
+      - nitter
+      - sotwe
+
+    # Nitter 实例列表 (轮询使用)
     nitter_instances:
       - "https://nitter.poast.org"
       - "https://lightbrd.com"
