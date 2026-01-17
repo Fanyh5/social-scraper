@@ -22,8 +22,8 @@ scraper:
 
     # Nitter 实例列表 (轮询使用)
     nitter_instances:
-      - "https://nitter.poast.org"
       - "https://lightbrd.com"
+      - "https://nitter.poast.org"
       - "https://nitter.privacydev.net"
       - "https://nitter.tiekoetter.com"
       - "https://nitter.catsarch.com"

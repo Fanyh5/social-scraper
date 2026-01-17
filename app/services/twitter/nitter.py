@@ -1,8 +1,10 @@
 import sys
 import json
 import time
+import random
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
+from app.services.twitter.utils import human_click
 from app.core.logger import setup_logger
 from app.core.config import get_config
 from app.core.user_agent import get_random_user_agent
@@ -86,30 +88,166 @@ def scrape_nitter(username, limit=10):
                     page_title = page.title()
                     page_content = page.content()
                     
-                    if "Just a moment" in page_title or "Verify you are human" in page_content or "lightbrd.com" in page_title:
-                        logger.warning(f"检测到 Cloudflare 验证页面 ({instance})，尝试自动处理...")
-                        page.wait_for_timeout(3000)
+                    if "Just a moment" in page_title or "Verify you are human" in page_content or "lightbrd.com" in page_title or "Attention Required" in page_title:
+                        logger.warning(f"检测到 Cloudflare/Turnstile 验证页面 ({instance})，尝试自动处理...")
                         
-                        # 遍历所有 frame 寻找 checkbox
-                        for frame in page.frames:
-                            try:
-                                # Cloudflare 的 iframe 通常包含 challenge
-                                if "cloudflare" in frame.url or "challenge" in frame.url:
-                                    # 查找 checkbox
-                                    checkbox = frame.query_selector("input[type='checkbox']")
-                                    if checkbox:
-                                        logger.info("找到 Cloudflare 验证框，尝试点击...")
-                                        checkbox.click()
-                                        page.wait_for_timeout(5000) # 等待验证通过跳转
-                                    else:
-                                        # 有时是 div 形式的点击区域
-                                        box = frame.query_selector(".ctp-checkbox-label")
+                        # 随机等待，模拟思考
+                        page.wait_for_timeout(random.randint(2000, 4000))
+                        
+                        # 处理 Turnstile 和 Cloudflare Challenge
+                        # 循环尝试点击，因为可能需要加载时间
+                        solved = False
+                        for attempt in range(3):
+                            logger.info(f"Cloudflare 绕过尝试 {attempt + 1}/3...")
+                            
+                            # 1. 查找并点击 iframe 中的 checkbox (常见于旧版 CF)
+                            frames = page.frames
+                            for frame in frames:
+                                try:
+                                    if "cloudflare" in frame.url or "challenge" in frame.url or "turnstile" in frame.url:
+                                        logger.info(f"发现验证 iframe: {frame.url}")
+                                        
+                                        # 策略 A: 查找 checkbox 元素
+                                        box = frame.query_selector("input[type='checkbox']")
+                                        if not box:
+                                            box = frame.query_selector(".ctp-checkbox-label")
+                                        
                                         if box:
-                                            logger.info("找到 Cloudflare 验证点击区域，尝试点击...")
-                                            box.click()
-                                            page.wait_for_timeout(5000)
+                                            logger.info("找到验证框 (Frame)，模拟人类点击...")
+                                            box_box = box.bounding_box()
+                                            if box_box:
+                                                # 计算中心点
+                                                x = box_box["x"] + box_box["width"] / 2
+                                                y = box_box["y"] + box_box["height"] / 2
+                                                # 使用人类行为模拟点击
+                                                human_click(page, x, y)
+                                                solved = True
+                                                break
+                                        
+                                        # 策略 B: 如果没找到 checkbox，尝试点击 iframe 中心
+                                        # Turnstile 有时整个 iframe 就是点击区域
+                                        else:
+                                            logger.info("未找到具体 checkbox，尝试点击 iframe 中心...")
+                                            frame_elem = page.query_selector(f"iframe[src='{frame.url}']")
+                                            if frame_elem:
+                                                frame_box = frame_elem.bounding_box()
+                                                if frame_box:
+                                                    x = frame_box["x"] + frame_box["width"] / 2
+                                                    y = frame_box["y"] + frame_box["height"] / 2
+                                                    human_click(page, x, y)
+                                                    solved = True
+                                                    break
+                                except Exception as e:
+                                    logger.debug(f"Frame 点击尝试失败: {e}")
+                            
+                            if solved: break
+                            
+                            # 2. 查找 Shadow DOM 中的 Turnstile (新版常见)
+                            # Turnstile通常在 ShadowRoot 里的 div 中
+                            try:
+                                # 尝试查找包含 Turnstile 的容器
+                                turnstile_wrappers = page.query_selector_all("div")
+                                for wrapper in turnstile_wrappers:
+                                    # 这是一个启发式搜索，寻找可能的 Shadow Root 宿主
+                                    # 通常不需要遍历所有 div，但这里为了通用性
+                                    # 实际上可以直接找 input type=checkbox，如果不在这里面可能在 shadow dom
+                                    pass
+                                
+                                # 使用 evaluate 穿透 Shadow DOM 查找 checkbox
+                                # 这段 JS 会在页面上寻找所有 shadow roots 并尝试点击其中的 checkbox
+                                js_script = """
+                                () => {
+                                    let clicked = false;
+                                    function findAndClick(root) {
+                                        if (clicked) return;
+                                        
+                                        // 尝试找 checkbox 或特定 div
+                                        const checkbox = root.querySelector('input[type="checkbox"]');
+                                        const challenge = root.querySelector('.ctp-checkbox-label') || root.querySelector('#challenge-stage');
+                                        
+                                        if (checkbox) {
+                                            checkbox.click();
+                                            clicked = true;
+                                            return;
+                                        }
+                                        if (challenge) {
+                                            challenge.click();
+                                            clicked = true;
+                                            return;
+                                        }
+
+                                        // 递归遍历子元素的 shadow root
+                                        const all = root.querySelectorAll('*');
+                                        for (let el of all) {
+                                            if (el.shadowRoot) {
+                                                findAndClick(el.shadowRoot);
+                                            }
+                                        }
+                                    }
+                                    
+                                    findAndClick(document);
+                                    return clicked;
+                                }
+                                """
+                                # 改为在 page 上执行，但针对所有可能的 Shadow Host
+                                # 直接在 page.evaluate 中尝试点击，但要配合 human_click 比较难
+                                # 所以我们先获取元素的位置，然后在 Python 中移动鼠标
+                                
+                                # 新策略：查找 Shadow Host 元素
+                                shadow_hosts = page.query_selector_all("div") # 缩小范围可能更好，但 turnstile 容器多样
+                                for host in shadow_hosts:
+                                    # 检查是否有 shadow root (这只能在 JS 中做)
+                                    pass
+                                
+                                # 使用 JS 寻找 checkbox 的坐标
+                                js_find_box = """
+                                () => {
+                                    function findBox(root) {
+                                        const checkbox = root.querySelector('input[type="checkbox"]');
+                                        if (checkbox) return checkbox.getBoundingClientRect();
+                                        
+                                        const challenge = root.querySelector('.ctp-checkbox-label') || root.querySelector('#challenge-stage');
+                                        if (challenge) return challenge.getBoundingClientRect();
+                                        
+                                        const all = root.querySelectorAll('*');
+                                        for (let el of all) {
+                                            if (el.shadowRoot) {
+                                                const res = findBox(el.shadowRoot);
+                                                if (res) return res;
+                                            }
+                                        }
+                                        return null;
+                                    }
+                                    return findBox(document);
+                                }
+                                """
+                                box_rect = page.evaluate(js_find_box)
+                                if box_rect:
+                                    logger.info(f"通过 JS 在 Shadow DOM 中找到验证框位置: {box_rect}")
+                                    x = box_rect["x"] + box_rect["width"] / 2
+                                    y = box_rect["y"] + box_rect["height"] / 2
+                                    human_click(page, x, y)
+                                    solved = True
+                                    break
+                                    
+                            except Exception as e:
+                                logger.debug(f"Shadow DOM 尝试失败: {e}")
+
+                            page.wait_for_timeout(2000)
+
+                        # 点击后等待验证完成及跳转
+                        if solved:
+                            logger.info("已点击验证，等待跳转...")
+                            try:
+                                # 等待不再是验证页面的特征，或者等待推文列表出现
+                                page.wait_for_selector(".timeline-item", timeout=10000)
+                                logger.info("Cloudflare 验证通过！")
                             except:
-                                pass
+                                logger.warning("Cloudflare 验证点击后未检测到成功跳转，可能失败")
+                        else:
+                            logger.warning("未找到可点击的验证框，将尝试直接等待...")
+                            page.wait_for_timeout(5000)
+
                 except Exception as cf_e:
                     logger.debug(f"Cloudflare 处理异常: {cf_e}")
 
