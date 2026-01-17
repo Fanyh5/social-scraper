@@ -1,0 +1,43 @@
+# SocialScraper 配置文件
+
+# 日志配置
+log:
+  level: INFO # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: null  # 可选：日志文件路径，例如 "social_scraper.log"
+
+# API 服务配置
+server:
+  host: "127.0.0.1"
+  port: 8000
+  reload: false # 开发模式下设置为 true
+
+# 爬虫配置
+scraper:
+  twitter:
+    # Nitter 实例列表 (优先使用靠前的实例)
+    nitter_instances:
+      - "https://nitter.poast.org"
+      - "https://lightbrd.com"
+      - "https://nitter.privacydev.net"
+      - "https://nitter.tiekoetter.com"
+      - "https://nitter.catsarch.com"
+      - "https://xcancel.com"
+      - "https://nitter.space"
+      - "https://nitter.lucabased.xyz"
+      - "https://nitter.salastil.com"
+      - "https://nitter.uni-sonia.com"
+    
+    # 浏览器配置
+    browser:
+      headless: true
+      timeout: 20000 # 页面加载超时 (毫秒)
+      # user_agent 字段已弃用，请使用 user_agents 列表配置
+
+  # 全局 User-Agent 池 (可选，如果未配置将使用内置默认列表)
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15"
